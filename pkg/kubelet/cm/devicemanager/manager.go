@@ -269,6 +269,10 @@ func (m *ManagerImpl) isVersionCompatibleWithPlugin(versions []string) bool {
 // from the registered device plugins.
 func (m *ManagerImpl) Allocate(node *schedulercache.NodeInfo, attrs *lifecycle.PodAdmitAttributes) error {
 	pod := attrs.Pod
+	glog.V(2).Infof("Test Allocate")
+	if pod.Spec.Containers[0].Resources.Limits != nil {
+		glog.V(2).Infof("Test Allocate hit: %s", pod.Spec.Containers[0].Resources.Limits)
+	}
 	devicesToReuse := make(map[string]sets.String)
 	for _, container := range pod.Spec.InitContainers {
 		if err := m.allocateContainerResources(pod, &container, devicesToReuse); err != nil {
@@ -607,6 +611,84 @@ func (m *ManagerImpl) devicesToAllocate(podUID, contName, resource string, requi
 	return devices, nil
 }
 
+// Call device-plugin to get the list of devices to allocate
+// Returns list of device Ids we need to allocate with Allocate rpc call.
+// Returns empty list in case we don't need to issue the Allocate rpc call.
+func (m *ManagerImpl) devicesToAllocateDecidedByPlugin(podUID, contName, resource string, required int, reusableDevices sets.String) (sets.String, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	e, ok := m.endpoints[resource]
+	if !ok {
+		return nil, fmt.Errorf("endpoint not found in cache for a registered resource: %s", resource)
+	}
+	needed := required
+	// Gets list of devices that have already been allocated.
+	// This can happen if a container restarts for example.
+	devices := m.podDevices.containerDevices(podUID, contName, resource)
+	if devices != nil {
+		glog.V(3).Infof("Found pre-allocated devices for resource %s container %q in Pod %q: %v", resource, contName, podUID, devices.List())
+		needed = needed - devices.Len()
+		// A pod's resource is not expected to change once admitted by the API server,
+		// so just fail loudly here. We can revisit this part if this no longer holds.
+		if needed != 0 {
+			return nil, fmt.Errorf("pod %q container %q changed request for resource %q from %d to %d", podUID, contName, resource, devices.Len(), required)
+		}
+	}
+	if needed == 0 {
+		// No change, no work.
+		return nil, nil
+	}
+	glog.V(3).Infof("Needs to allocate %d %q for pod %q container %q", needed, resource, podUID, contName)
+	// Needs to allocate additional devices.
+	if _, ok := m.healthyDevices[resource]; !ok {
+		return nil, fmt.Errorf("can't allocate unregistered device %s", resource)
+	}
+	// Add reusableDevices list to usableSevices List.
+	usableDevices := sets.NewString()
+	for device := range reusableDevices {
+		usableDevices.Insert(device)
+		needed--
+		if needed == 0 {
+			break
+		}
+	}
+	// Only use reusableDevices can't satisfy request.
+	if needed != 0 {
+		// Needs to allocate additional devices.
+		if m.allocatedDevices[resource] == nil {
+			m.allocatedDevices[resource] = sets.NewString()
+		}
+		// Gets Devices in use.
+		devicesInUse := m.allocatedDevices[resource]
+		// Gets a list of available devices.
+		available := m.healthyDevices[resource].Difference(devicesInUse)
+		if int(available.Len()) < needed {
+			return nil, fmt.Errorf("requested number of devices unavailable for %s. Requested: %d, Available: %d", resource, needed, available.Len())
+		}
+		// Add to usableDevices
+		for _, device := range available.UnsortedList() {
+			usableDevices.Insert(device)
+		}
+	}
+	// Call plugin's preAllocate.
+	preAllocateResponse, err := e.preAllocate(int64(required), usableDevices.UnsortedList())
+	if err != nil {
+		return nil, fmt.Errorf("preAllocate Fail: %v", err)
+	}
+	// change []string to sets.String.
+	devices = sets.NewString()
+	for _, device := range preAllocateResponse.SelectedDevicesIDs {
+		devices.Insert(device)
+	}
+	// If plugin return some device IDs which are not in allocatedDevice then we need add them in.
+	newAllocatedDevices := devices.Difference(m.allocatedDevices[resource])
+	for _, device := range newAllocatedDevices.UnsortedList() {
+		m.allocatedDevices[resource].Insert(device)
+	}
+	glog.V(2).Infof("Test plugin selected device: %s", devices)
+	return devices, nil
+}
+
 // allocateContainerResources attempts to allocate all of required device
 // plugin resources for the input container, issues an Allocate rpc request
 // for each new device resource requirement, processes their AllocateResponses,
@@ -615,6 +697,9 @@ func (m *ManagerImpl) allocateContainerResources(pod *v1.Pod, container *v1.Cont
 	podUID := string(pod.UID)
 	contName := container.Name
 	allocatedDevicesUpdated := false
+	if container.Resources.Limits != nil {
+		glog.V(2).Infof("Test Allocate hit2: %s", pod.Spec.Containers[0].Resources.Limits)
+	}
 	// Extended resources are not allowed to be overcommitted.
 	// Since device plugin advertises extended resources,
 	// therefore Requests must be equal to Limits and iterating
@@ -632,7 +717,7 @@ func (m *ManagerImpl) allocateContainerResources(pod *v1.Pod, container *v1.Cont
 			m.updateAllocatedDevices(m.activePods())
 			allocatedDevicesUpdated = true
 		}
-		allocDevices, err := m.devicesToAllocate(podUID, contName, resource, needed, devicesToReuse[resource])
+		allocDevices, err := m.callPreAllocateOrDeviceToAllocate(podUID, contName, resource, needed, devicesToReuse[resource])
 		if err != nil {
 			return err
 		}
@@ -751,6 +836,31 @@ func (m *ManagerImpl) callPreStartContainerIfNeeded(podUID, contName, resource s
 	}
 	// TODO: Add metrics support for init RPC
 	return nil
+}
+
+// callPreAllocateIfNeeded issues PreAllocate grpc call for device plugin resource
+// with PreAllocateRequired option set.
+// If PreAllocateRequired is not set, than if call devicesToAllocate()
+func (m *ManagerImpl) callPreAllocateOrDeviceToAllocate(podUID, contName, resource string, required int, reusableDevices sets.String) (sets.String, error) {
+	opts, ok := m.pluginOpts[resource]
+	if !ok {
+		e, ok := m.endpoints[resource]
+		if !ok {
+			return nil, fmt.Errorf("endpoint not found in cache for a registered resource: %s", resource)
+		}
+		var err error
+		opts, err = e.getDevicePluginOptions()
+		if err != nil {
+			return nil, fmt.Errorf("getDevicePluginOptions error: %v", err)
+		}
+	}
+	if !opts.PreAllocateRequired {
+		glog.V(4).Infof("Use Default device allocate function for resource: %s. Skip PreStartContainer", resource)
+		return m.devicesToAllocate(podUID, contName, resource, required, reusableDevices)
+	}
+
+	// TODO: Add metrics support for init RPC
+	return m.devicesToAllocateDecidedByPlugin(podUID, contName, resource, required, reusableDevices)
 }
 
 // sanitizeNodeAllocatable scans through allocatedDevices in the device manager

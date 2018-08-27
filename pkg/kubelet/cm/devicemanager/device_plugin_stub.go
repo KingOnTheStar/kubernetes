@@ -195,6 +195,12 @@ func (m *Stub) PreStartContainer(ctx context.Context, r *pluginapi.PreStartConta
 	return &pluginapi.PreStartContainerResponse{}, nil
 }
 
+// PreAllocate do nothing, here
+func (m *Stub) PreAllocate(ctx context.Context, r *pluginapi.PreAllocateRequest) (*pluginapi.PreAllocateResponse, error) {
+	log.Printf("PreAllocate, %+v", r)
+	return &pluginapi.PreAllocateResponse{}, nil
+}
+
 // ListAndWatch lists devices and update that list according to the Update call
 func (m *Stub) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlugin_ListAndWatchServer) error {
 	log.Println("ListAndWatch")

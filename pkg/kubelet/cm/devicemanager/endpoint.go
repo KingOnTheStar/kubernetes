@@ -36,7 +36,9 @@ type endpoint interface {
 	run()
 	stop()
 	allocate(devs []string) (*pluginapi.AllocateResponse, error)
+	getDevicePluginOptions() (*pluginapi.DevicePluginOptions, error)
 	preStartContainer(devs []string) (*pluginapi.PreStartContainerResponse, error)
+	preAllocate(devsNum int64, devs []string) (*pluginapi.PreAllocateResponse, error)
 	callback(resourceName string, devices []pluginapi.Device)
 	isStopped() bool
 	stopGracePeriodExpired() bool
@@ -150,6 +152,15 @@ func (e *endpointImpl) allocate(devs []string) (*pluginapi.AllocateResponse, err
 	})
 }
 
+func (e *endpointImpl) getDevicePluginOptions() (*pluginapi.DevicePluginOptions, error) {
+	if e.isStopped() {
+		return nil, fmt.Errorf(errEndpointStopped, e)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), pluginapi.KubeletPreStartContainerRPCTimeoutInSecs*time.Second)
+	defer cancel()
+	return e.client.GetDevicePluginOptions(ctx, &pluginapi.Empty{})
+}
+
 // preStartContainer issues PreStartContainer gRPC call to the device plugin.
 func (e *endpointImpl) preStartContainer(devs []string) (*pluginapi.PreStartContainerResponse, error) {
 	if e.isStopped() {
@@ -159,6 +170,19 @@ func (e *endpointImpl) preStartContainer(devs []string) (*pluginapi.PreStartCont
 	defer cancel()
 	return e.client.PreStartContainer(ctx, &pluginapi.PreStartContainerRequest{
 		DevicesIDs: devs,
+	})
+}
+
+// preAllocate issues preAllocate gRPC call to the device plugin.
+func (e *endpointImpl) preAllocate(devsNum int64, devs []string) (*pluginapi.PreAllocateResponse, error) {
+	if e.isStopped() {
+		return nil, fmt.Errorf(errEndpointStopped, e)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), pluginapi.KubeletPreStartContainerRPCTimeoutInSecs*time.Second)
+	defer cancel()
+	return e.client.PreAllocate(ctx, &pluginapi.PreAllocateRequest{
+		DevicesNum:       devsNum,
+		UsableDevicesIDs: devs,
 	})
 }
 

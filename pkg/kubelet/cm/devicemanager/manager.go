@@ -843,18 +843,7 @@ func (m *ManagerImpl) callPreStartContainerIfNeeded(podUID, contName, resource s
 // If PreAllocateRequired is not set, than if call devicesToAllocate()
 func (m *ManagerImpl) callPreAllocateOrDeviceToAllocate(podUID, contName, resource string, required int, reusableDevices sets.String) (sets.String, error) {
 	opts, ok := m.pluginOpts[resource]
-	if !ok {
-		e, ok := m.endpoints[resource]
-		if !ok {
-			return nil, fmt.Errorf("endpoint not found in cache for a registered resource: %s", resource)
-		}
-		var err error
-		opts, err = e.getDevicePluginOptions()
-		if err != nil {
-			return nil, fmt.Errorf("getDevicePluginOptions error: %v", err)
-		}
-	}
-	if !opts.PreAllocateRequired {
+	if !ok || !opts.PreAllocateRequired {
 		glog.V(4).Infof("Use Default device allocate function for resource: %s. Skip PreStartContainer", resource)
 		return m.devicesToAllocate(podUID, contName, resource, required, reusableDevices)
 	}

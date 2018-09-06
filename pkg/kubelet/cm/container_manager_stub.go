@@ -83,8 +83,8 @@ func (cm *containerManagerStub) GetPluginRegistrationHandlerCallback() pluginwat
 	}
 }
 
-func (cm *containerManagerStub) GetDevicePluginResourceCapacity() (v1.ResourceList, v1.ResourceList, []string) {
-	return nil, nil, []string{}
+func (cm *containerManagerStub) GetDevicePluginResourceCapacity() (v1.ResourceList, v1.ResourceList, []string, map[string]string) {
+	return nil, nil, []string{}, nil
 }
 
 func (cm *containerManagerStub) NewPodContainerManager() PodContainerManager {

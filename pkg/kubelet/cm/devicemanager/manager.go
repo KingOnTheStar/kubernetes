@@ -112,14 +112,15 @@ func newManagerImpl(socketPath string) (*ManagerImpl, error) {
 
 	dir, file := filepath.Split(socketPath)
 	manager := &ManagerImpl{
-		endpoints:        make(map[string]endpoint),
-		socketname:       file,
-		socketdir:        dir,
-		healthyDevices:   make(map[string]sets.String),
-		unhealthyDevices: make(map[string]sets.String),
-		allocatedDevices: make(map[string]sets.String),
-		pluginOpts:       make(map[string]*pluginapi.DevicePluginOptions),
-		podDevices:       make(podDevices),
+		endpoints:              make(map[string]endpoint),
+		socketname:             file,
+		socketdir:              dir,
+		healthyDevices:         make(map[string]sets.String),
+		unhealthyDevices:       make(map[string]sets.String),
+		allocatedDevices:       make(map[string]sets.String),
+		devicePluginAnnotation: make(map[string]string),
+		pluginOpts:             make(map[string]*pluginapi.DevicePluginOptions),
+		podDevices:             make(podDevices),
 	}
 	manager.callback = manager.genericDeviceUpdateCallback
 

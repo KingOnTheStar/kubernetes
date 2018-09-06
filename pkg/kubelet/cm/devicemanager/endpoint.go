@@ -39,7 +39,7 @@ type endpoint interface {
 	getDevicePluginOptions() (*pluginapi.DevicePluginOptions, error)
 	preStartContainer(devs []string) (*pluginapi.PreStartContainerResponse, error)
 	preAllocate(devsNum int64, devs []string) (*pluginapi.PreAllocateResponse, error)
-	callback(resourceName string, devices []pluginapi.Device)
+	callback(resourceName string, devices []pluginapi.Device, devicepluginAnnotation map[string]string)
 	isStopped() bool
 	stopGracePeriodExpired() bool
 }
@@ -85,8 +85,8 @@ func newStoppedEndpointImpl(resourceName string) *endpointImpl {
 	}
 }
 
-func (e *endpointImpl) callback(resourceName string, devices []pluginapi.Device) {
-	e.cb(resourceName, devices)
+func (e *endpointImpl) callback(resourceName string, devices []pluginapi.Device, devicepluginAnnotation map[string]string) {
+	e.cb(resourceName, devices, devicepluginAnnotation)
 }
 
 // run initializes ListAndWatch gRPC call for the device plugin and
@@ -117,7 +117,9 @@ func (e *endpointImpl) run() {
 			newDevs = append(newDevs, *d)
 		}
 
-		e.callback(e.resourceName, newDevs)
+		devicepluginAnnotation := response.DevicePluginAnnotation
+
+		e.callback(e.resourceName, newDevs, devicepluginAnnotation)
 	}
 }
 

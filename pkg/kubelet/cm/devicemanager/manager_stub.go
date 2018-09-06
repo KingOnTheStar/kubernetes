@@ -53,8 +53,8 @@ func (h *ManagerStub) GetDeviceRunContainerOptions(pod *v1.Pod, container *v1.Co
 }
 
 // GetCapacity simply returns nil capacity and empty removed resource list.
-func (h *ManagerStub) GetCapacity() (v1.ResourceList, v1.ResourceList, []string) {
-	return nil, nil, []string{}
+func (h *ManagerStub) GetCapacity() (v1.ResourceList, v1.ResourceList, []string, map[string]string) {
+	return nil, nil, []string{}, nil
 }
 
 // GetWatcherCallback returns plugin watcher callback

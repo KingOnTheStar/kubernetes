@@ -49,7 +49,7 @@ type ActivePodsFunc func() []*v1.Pod
 // monitorCallback is the function called when a device's health state changes,
 // or new devices are reported, or old devices are deleted.
 // Updated contains the most recent state of the Device.
-type monitorCallback func(resourceName string, devices []pluginapi.Device)
+type monitorCallback func(resourceName string, devices []pluginapi.Device, devicepluginAnnotation map[string]string)
 
 // ManagerImpl is the structure in charge of managing Device Plugins.
 type ManagerImpl struct {
@@ -83,6 +83,9 @@ type ManagerImpl struct {
 
 	// allocatedDevices contains allocated deviceIds, keyed by resourceName.
 	allocatedDevices map[string]sets.String
+
+	// the annotation that device plugin wants to add to node
+	devicePluginAnnotation map[string]string
 
 	// podDevices contains pod to allocated device mapping.
 	podDevices        podDevices
@@ -133,7 +136,7 @@ func newManagerImpl(socketPath string) (*ManagerImpl, error) {
 	return manager, nil
 }
 
-func (m *ManagerImpl) genericDeviceUpdateCallback(resourceName string, devices []pluginapi.Device) {
+func (m *ManagerImpl) genericDeviceUpdateCallback(resourceName string, devices []pluginapi.Device, devicepluginAnnotation map[string]string) {
 	m.mutex.Lock()
 	m.healthyDevices[resourceName] = sets.NewString()
 	m.unhealthyDevices[resourceName] = sets.NewString()
@@ -143,6 +146,9 @@ func (m *ManagerImpl) genericDeviceUpdateCallback(resourceName string, devices [
 		} else {
 			m.unhealthyDevices[resourceName].Insert(dev.ID)
 		}
+	}
+	for k, v := range devicepluginAnnotation {
+		m.devicePluginAnnotation[k] = v
 	}
 	m.mutex.Unlock()
 	m.writeCheckpoint()
@@ -436,11 +442,12 @@ func (m *ManagerImpl) markResourceUnhealthy(resourceName string) {
 // cm.UpdatePluginResource() run during predicate Admit guarantees we adjust nodeinfo
 // capacity for already allocated pods so that they can continue to run. However, new pods
 // requiring device plugin resources will not be scheduled till device plugin re-registers.
-func (m *ManagerImpl) GetCapacity() (v1.ResourceList, v1.ResourceList, []string) {
+func (m *ManagerImpl) GetCapacity() (v1.ResourceList, v1.ResourceList, []string, map[string]string) {
 	needsUpdateCheckpoint := false
 	var capacity = v1.ResourceList{}
 	var allocatable = v1.ResourceList{}
 	deletedResources := sets.NewString()
+	var devicePluginAnnotation map[string]string
 	m.mutex.Lock()
 	for resourceName, devices := range m.healthyDevices {
 		e, ok := m.endpoints[resourceName]
@@ -477,11 +484,12 @@ func (m *ManagerImpl) GetCapacity() (v1.ResourceList, v1.ResourceList, []string)
 			capacity[v1.ResourceName(resourceName)] = capacityCount
 		}
 	}
+	devicePluginAnnotation = m.devicePluginAnnotation
 	m.mutex.Unlock()
 	if needsUpdateCheckpoint {
 		m.writeCheckpoint()
 	}
-	return capacity, allocatable, deletedResources.UnsortedList()
+	return capacity, allocatable, deletedResources.UnsortedList(), devicePluginAnnotation
 }
 
 // Checkpoints device to container allocation information to disk.

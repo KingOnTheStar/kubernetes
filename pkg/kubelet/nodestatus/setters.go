@@ -169,7 +169,7 @@ func MachineInfo(nodeName string,
 	podsPerCore int,
 	machineInfoFunc func() (*cadvisorapiv1.MachineInfo, error), // typically Kubelet.GetCachedMachineInfo
 	capacityFunc func() v1.ResourceList, // typically Kubelet.containerManager.GetCapacity
-	devicePluginResourceCapacityFunc func() (v1.ResourceList, v1.ResourceList, []string), // typically Kubelet.containerManager.GetDevicePluginResourceCapacity
+	devicePluginResourceCapacityFunc func() (v1.ResourceList, v1.ResourceList, []string, map[string]string), // typically Kubelet.containerManager.GetDevicePluginResourceCapacity
 	nodeAllocatableReservationFunc func() v1.ResourceList, // typically Kubelet.containerManager.GetNodeAllocatableReservation
 	recordEventFunc func(eventType, event, message string), // typically Kubelet.recordEvent
 ) Setter {
@@ -183,6 +183,7 @@ func MachineInfo(nodeName string,
 		var devicePluginAllocatable v1.ResourceList
 		var devicePluginCapacity v1.ResourceList
 		var removedDevicePlugins []string
+		var devicePluginAnnotation map[string]string
 
 		// TODO: Post NotReady if we cannot get MachineInfo from cAdvisor. This needs to start
 		// cAdvisor locally, e.g. for test-cmd.sh, and in integration test.
@@ -228,7 +229,7 @@ func MachineInfo(nodeName string,
 				}
 			}
 
-			devicePluginCapacity, devicePluginAllocatable, removedDevicePlugins = devicePluginResourceCapacityFunc()
+			devicePluginCapacity, devicePluginAllocatable, removedDevicePlugins, devicePluginAnnotation = devicePluginResourceCapacityFunc()
 			if devicePluginCapacity != nil {
 				for k, v := range devicePluginCapacity {
 					if old, ok := node.Status.Capacity[k]; !ok || old.Value() != v.Value() {
@@ -297,6 +298,10 @@ func MachineInfo(nodeName string,
 				}
 				node.Status.Allocatable[v1.ResourceMemory] = allocatableMemory
 			}
+		}
+
+		for k, v := range devicePluginAnnotation {
+			node.Annotations[k] = v
 		}
 		return nil
 	}

@@ -148,6 +148,7 @@ func (m *ManagerImpl) genericDeviceUpdateCallback(resourceName string, devices [
 			m.unhealthyDevices[resourceName].Insert(dev.ID)
 		}
 	}
+	// Incremental Updating node annotation
 	for k, v := range devicepluginAnnotation {
 		m.devicePluginAnnotation[k] = v
 	}
@@ -276,10 +277,6 @@ func (m *ManagerImpl) isVersionCompatibleWithPlugin(versions []string) bool {
 // from the registered device plugins.
 func (m *ManagerImpl) Allocate(node *schedulercache.NodeInfo, attrs *lifecycle.PodAdmitAttributes) error {
 	pod := attrs.Pod
-	glog.V(2).Infof("Test Allocate")
-	if pod.Spec.Containers[0].Resources.Limits != nil {
-		glog.V(2).Infof("Test Allocate hit: %s", pod.Spec.Containers[0].Resources.Limits)
-	}
 	devicesToReuse := make(map[string]sets.String)
 	for _, container := range pod.Spec.InitContainers {
 		if err := m.allocateContainerResources(pod, &container, devicesToReuse); err != nil {
@@ -694,7 +691,6 @@ func (m *ManagerImpl) devicesToAllocateDecidedByPlugin(podUID, contName, resourc
 	for _, device := range newAllocatedDevices.UnsortedList() {
 		m.allocatedDevices[resource].Insert(device)
 	}
-	glog.V(2).Infof("Test plugin selected device: %s", devices)
 	return devices, nil
 }
 
@@ -706,9 +702,6 @@ func (m *ManagerImpl) allocateContainerResources(pod *v1.Pod, container *v1.Cont
 	podUID := string(pod.UID)
 	contName := container.Name
 	allocatedDevicesUpdated := false
-	if container.Resources.Limits != nil {
-		glog.V(2).Infof("Test Allocate hit2: %s", pod.Spec.Containers[0].Resources.Limits)
-	}
 	// Extended resources are not allowed to be overcommitted.
 	// Since device plugin advertises extended resources,
 	// therefore Requests must be equal to Limits and iterating

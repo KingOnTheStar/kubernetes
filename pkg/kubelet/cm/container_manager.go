@@ -74,7 +74,7 @@ type ContainerManager interface {
 	// GetDevicePluginResourceCapacity returns the node capacity (amount of total device plugin resources),
 	// node allocatable (amount of total healthy resources reported by device plugin),
 	// and inactive device plugin resources previously registered on the node.
-	GetDevicePluginResourceCapacity() (v1.ResourceList, v1.ResourceList, []string)
+	GetDevicePluginResourceCapacity() (v1.ResourceList, v1.ResourceList, []string, map[string]string)
 
 	// UpdateQOSCgroups performs housekeeping updates to ensure that the top
 	// level QoS containers have their desired state in a thread-safe way

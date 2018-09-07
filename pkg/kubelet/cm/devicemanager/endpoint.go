@@ -117,9 +117,7 @@ func (e *endpointImpl) run() {
 			newDevs = append(newDevs, *d)
 		}
 
-		devicepluginAnnotation := response.DevicePluginAnnotation
-
-		e.callback(e.resourceName, newDevs, devicepluginAnnotation)
+		e.callback(e.resourceName, newDevs, response.DevicePluginAnnotation)
 	}
 }
 

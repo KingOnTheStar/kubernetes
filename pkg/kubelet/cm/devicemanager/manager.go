@@ -31,6 +31,7 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/kubernetes/pkg/apis/core"
 	v1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	pluginapi "k8s.io/kubernetes/pkg/kubelet/apis/deviceplugin/v1beta1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -41,6 +42,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
 	watcher "k8s.io/kubernetes/pkg/kubelet/util/pluginwatcher"
 	schedulercache "k8s.io/kubernetes/pkg/scheduler/cache"
+	"strings"
 )
 
 // ActivePodsFunc is a function that returns a list of pods to reconcile.
@@ -620,7 +622,7 @@ func (m *ManagerImpl) devicesToAllocate(podUID, contName, resource string, requi
 // Call device-plugin to get the list of devices to allocate
 // Returns list of device Ids we need to allocate with Allocate rpc call.
 // Returns empty list in case we don't need to issue the Allocate rpc call.
-func (m *ManagerImpl) devicesToAllocateDecidedByPlugin(podUID, contName, resource string, required int, reusableDevices sets.String) (sets.String, error) {
+func (m *ManagerImpl) devicesToAllocateDecidedByPlugin(podUID, contName, resource string, podAnnotations map[string]string, required int, reusableDevices sets.String) (sets.String, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	e, ok := m.endpoints[resource]
@@ -677,7 +679,7 @@ func (m *ManagerImpl) devicesToAllocateDecidedByPlugin(podUID, contName, resourc
 		}
 	}
 	// Call plugin's preAllocate.
-	preAllocateResponse, err := e.preAllocate(int64(required), usableDevices.UnsortedList())
+	preAllocateResponse, err := e.preAllocate(int64(required), usableDevices.UnsortedList(), podAnnotations)
 	if err != nil {
 		return nil, fmt.Errorf("preAllocate Fail: %v", err)
 	}
@@ -719,7 +721,26 @@ func (m *ManagerImpl) allocateContainerResources(pod *v1.Pod, container *v1.Cont
 			m.updateAllocatedDevices(m.activePods())
 			allocatedDevicesUpdated = true
 		}
-		allocDevices, err := m.callPreAllocateOrDeviceToAllocate(podUID, contName, resource, needed, devicesToReuse[resource])
+		// Prepare pod annotation
+		podAnnotationsRequired := false
+		m.mutex.Lock()
+		opts, ok := m.pluginOpts[resource]
+		if ok {
+			podAnnotationsRequired = opts.PodAnnotationsRequired
+		}
+		m.mutex.Unlock()
+		// Prepare pod annotations for the endpoint allocate call
+		podAnnotations := make(map[string]string)
+		if podAnnotationsRequired {
+			// Filter out unwanted annotations
+			for key, value := range pod.Annotations {
+				if strings.HasPrefix(key, core.NodeDeviceManagerAnnotationKeyPrefix) {
+					podAnnotations[key] = value
+				}
+			}
+		}
+		// Select Device
+		allocDevices, err := m.callPreAllocateOrDeviceToAllocate(podUID, contName, resource, podAnnotations, needed, devicesToReuse[resource])
 		if err != nil {
 			return err
 		}
@@ -843,15 +864,18 @@ func (m *ManagerImpl) callPreStartContainerIfNeeded(podUID, contName, resource s
 // callPreAllocateIfNeeded issues PreAllocate grpc call for device plugin resource
 // with PreAllocateRequired option set.
 // If PreAllocateRequired is not set, than if call devicesToAllocate()
-func (m *ManagerImpl) callPreAllocateOrDeviceToAllocate(podUID, contName, resource string, required int, reusableDevices sets.String) (sets.String, error) {
+func (m *ManagerImpl) callPreAllocateOrDeviceToAllocate(podUID, contName, resource string, podAnnotations map[string]string, required int, reusableDevices sets.String) (sets.String, error) {
+	m.mutex.Lock()
 	opts, ok := m.pluginOpts[resource]
 	if !ok || !opts.PreAllocateRequired {
 		glog.V(4).Infof("Use Default device allocate function for resource: %s. Skip PreStartContainer", resource)
+		m.mutex.Unlock()
 		return m.devicesToAllocate(podUID, contName, resource, required, reusableDevices)
 	}
+	m.mutex.Unlock()
 
 	// TODO: Add metrics support for init RPC
-	return m.devicesToAllocateDecidedByPlugin(podUID, contName, resource, required, reusableDevices)
+	return m.devicesToAllocateDecidedByPlugin(podUID, contName, resource, podAnnotations, required, reusableDevices)
 }
 
 // sanitizeNodeAllocatable scans through allocatedDevices in the device manager

@@ -82,4 +82,8 @@ const (
 	//
 	// Not all cloud providers support this annotation, though AWS & GCE do.
 	AnnotationLoadBalancerSourceRangesKey = "service.beta.kubernetes.io/load-balancer-source-ranges"
+
+	// NodeDeviceManagerAnnotationKeyPrefix identifies annotations that can be
+	// passed to the device plugins through Allocate API
+	NodeDeviceManagerAnnotationKeyPrefix string = "node.dm.alpha.kubernetes.io/"
 )

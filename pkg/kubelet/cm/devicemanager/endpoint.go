@@ -38,7 +38,7 @@ type endpoint interface {
 	allocate(devs []string) (*pluginapi.AllocateResponse, error)
 	getDevicePluginOptions() (*pluginapi.DevicePluginOptions, error)
 	preStartContainer(devs []string) (*pluginapi.PreStartContainerResponse, error)
-	preAllocate(devsNum int64, devs []string) (*pluginapi.PreAllocateResponse, error)
+	preAllocate(devsNum int64, devs []string, podAnnotations map[string]string) (*pluginapi.PreAllocateResponse, error)
 	callback(resourceName string, devices []pluginapi.Device, devicepluginAnnotation map[string]string)
 	isStopped() bool
 	stopGracePeriodExpired() bool
@@ -174,7 +174,7 @@ func (e *endpointImpl) preStartContainer(devs []string) (*pluginapi.PreStartCont
 }
 
 // preAllocate issues preAllocate gRPC call to the device plugin.
-func (e *endpointImpl) preAllocate(devsNum int64, devs []string) (*pluginapi.PreAllocateResponse, error) {
+func (e *endpointImpl) preAllocate(devsNum int64, devs []string, podAnnotations map[string]string) (*pluginapi.PreAllocateResponse, error) {
 	if e.isStopped() {
 		return nil, fmt.Errorf(errEndpointStopped, e)
 	}
@@ -183,6 +183,7 @@ func (e *endpointImpl) preAllocate(devsNum int64, devs []string) (*pluginapi.Pre
 	return e.client.PreAllocate(ctx, &pluginapi.PreAllocateRequest{
 		DevicesNum:       devsNum,
 		UsableDevicesIDs: devs,
+		PodAnnotations:   podAnnotations,
 	})
 }
 
